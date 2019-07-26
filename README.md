@@ -2,7 +2,7 @@
 
 Description
 -----------------------
-This repo is my attempt at following the tutorial located [here](https://rustwasm.github.io/docs/book/game-of-life). 
+This repo is my attempt at following the tutorial located [here](https://rustwasm.github.io/docs/book/introduction.html). 
 Thank you for looking!
 
 Execution
