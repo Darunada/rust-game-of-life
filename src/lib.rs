@@ -4,6 +4,31 @@ use std::fmt;
 use std::fmt::Formatter;
 use wasm_bindgen::prelude::*;
 
+#[wasm_bindgen]
+extern "C" {
+    // Use `js_namespace` here to bind `console.log(..)` instead of just
+    // `log(..)`
+    #[wasm_bindgen(js_namespace = console)]
+    fn log(s: &str);
+
+    // The `console.log` is quite polymorphic, so we can bind it with multiple
+    // signatures. Note that we need to use `js_name` to ensure we always call
+    // `log` in JS.
+    #[wasm_bindgen(js_namespace = console, js_name = log)]
+    fn log_u32(a: u32);
+
+    // Multiple arguments too!
+    #[wasm_bindgen(js_namespace = console, js_name = log)]
+    fn log_many(a: &str, b: &str);
+}
+
+
+macro_rules! console_log {
+    // Note that this is using the `log` function imported above during
+    // `bare_bones`
+    ($($t:tt)*) => (log(&format_args!($($t)*).to_string()))
+}
+
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
 // allocator.
 #[cfg(feature = "wee_alloc")]
@@ -43,24 +68,46 @@ impl Universe {
 
     fn live_neighbor_count(&self, row: u32, column: u32) -> u8 {
         let mut count = 0;
-        for x in row-1..row+1 {
-            for y in column-1..column+1 {
-                if x == 0 && y == 0 {
-                    // that's me
-                    continue;
-                } else if x < 0 || y < 0 || x >= self.width || y >=self.height  {
-                    // an edge
-                    count += match self.edge_mode {
-                        UniverseEdgeMode::FixedAlive => Cell::Alive as u8,
-                        UniverseEdgeMode::FixedDead => Cell::Dead as u8,
-                        _ => { unimplemented!() }
-                    };
 
-                } else {
-                    // a real neighbor
-                    let index = self.get_index(x, y);
-                    count += self.cells[index] as u8;
+        let x_deltas = [self.width - 1, 0, 1];
+        let y_deltas = [self.height - 1, 0, 1];
+
+        for dx in x_deltas.iter() {
+            for dy in y_deltas.iter() {
+                if *dx == 0 && *dy == 0 {
+                    continue;
                 }
+
+                let x = (row + *dx) % self.width;
+                let y = (column + *dy) % self.height;
+                let index = self.get_index(x , y);
+
+                let edge = *dx > 1 && row == 0 || *dy > 1 && column == 0 // -1 delta && getting 0
+                                || *dx == 1 && x < row || *dy == 1 && y < column; // +1 delta && got 0
+
+//                console_log!("{} ({}+{}, {}+{}) => ({})", edge, x, *dx, y, *dy, index);
+
+                let cell_status = match self.edge_mode {
+                    UniverseEdgeMode::FixedAlive => {
+                        if edge {
+                            Cell::Alive
+                        } else {
+                            self.cells[index]
+                        }
+                    },
+                    UniverseEdgeMode::FixedDead => {
+                        if edge {
+                            Cell::Dead
+                        } else {
+                            self.cells[index]
+                        }
+                    },
+                    _ => {
+                        self.cells[index]
+                    }
+                };
+
+                count += cell_status as u8;
             }
         }
 
@@ -68,8 +115,8 @@ impl Universe {
     }
 
     pub fn new() -> Universe {
-        let width: u32 = 64;
-        let height: u32 = 64;
+        let width: u32 = 128;
+        let height: u32 = 128;
 
         let cells = (0..width * height)
             .map(|i| {
@@ -85,7 +132,7 @@ impl Universe {
             width,
             height,
             cells,
-            edge_mode: UniverseEdgeMode::FixedAlive,
+            edge_mode: UniverseEdgeMode::Wrap,
         }
     }
 
@@ -94,9 +141,19 @@ impl Universe {
 
         let mut next_cells = self.cells.clone();
 
-        // for each cell,
+        match self.edge_mode {
+            UniverseEdgeMode::Expand => {
+                unimplemented!();
+                // if there are 3 or more alive along an edge, we need to expand one cell in that direction.
+                // if there are none alive along an edge, we can shrink that edge.
+            },
+            _ => {}
+        }
+
+        // for each cell
         for x in 0..self.width {
             for y in 0..self.height {
+
                 let index = self.get_index(x, y);
                 let me = self.cells[index];
                 let live_neighbors = self.live_neighbor_count(x, y);
@@ -113,10 +170,21 @@ impl Universe {
                     _ => Cell::Dead
                 };
 
+                let me_symbol = match me {
+                    Cell::Dead => "dead",
+                    Cell::Alive => "alive"
+                };
+                let next_symbol = match next {
+                    Cell::Dead => "dead",
+                    Cell::Alive => "alive"
+                };
+
+//                console_log!("({}, {}) -> ({}) {} => {}", x, y, live_neighbors, me_symbol, next_symbol);
+
                 next_cells[index] = next;
             }
-        }
 
+        }
         self.cells = next_cells;
     }
 
